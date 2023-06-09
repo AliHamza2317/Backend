@@ -9,6 +9,10 @@ const stripe = require("stripe")("sk_test_51N5keOESFgqQlsyzUyepxrlBjulvqwPcMbWvW
 const bodyParser = require("body-parser")
 const cors = require("cors")
 
+
+
+
+
 app.use(bodyParser.urlencoded({ extended: true }))
 app.use(bodyParser.json())
 
@@ -26,9 +30,10 @@ mongoose.connect("mongodb+srv://hamza:123@cluster0.btxgzbp.mongodb.net/Project?r
 }) 
 
 port=3001
-app.listen(port,()=>{
-    console.log('App listening on port'+port)
-})
+app.listen(port, () => {
+    console.log('App listening on port ' + port );
+  });
+  
 
 app.use("/user",uRoutes); 
 app.use("/tour",tRoutes); 

@@ -1,40 +1,28 @@
 const tour = require("../Models/tourSchema");
 const multer = require('multer');
-
-const FILE_TYPE_MAP = {
-  'image/png': 'png',
-  'image/jpeg': 'jpeg',
-  'image/jpg': 'jpg'
-};
-
-const storage = multer.diskStorage({
-  destination: function (req, file, cb) {
-    const isValid = FILE_TYPE_MAP[file.mimetype];
-    if (!isValid) {
-      return cb(new Error('Invalid image type'), null);
-    }
-    cb(null, 'public/');
-  },
-  filename: function (req, file, cb) {
-    const fileName = file.originalname.split(' ').join('-');
-    const extension = FILE_TYPE_MAP[file.mimetype];
-    cb(null, `${fileName}-${Date.now()}.${extension}`);
-  }
-});
-
-const uploadOptions = multer({ storage }).array('image', 5);
-
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 const cloudinary = require('cloudinary').v2;
 
 // Configure Cloudinary
-cloudinary.config({ 
-  cloud_name: 'dj1safmih', 
-  api_key: '625184533391514', 
-  api_secret: '11OIiafi90Sfl4OKWGOf48JcSuE' 
+cloudinary.config({
+  cloud_name: 'dj1safmih',
+  api_key: '625184533391514',
+  api_secret: '11OIiafi90Sfl4OKWGOf48JcSuE'
 });
 
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'public',
+    allowed_formats: ['png', 'jpeg', 'jpg'],
+    transformation: [{ width: 500, height: 500, crop: 'limit' }]
+  }
+});
+
+const upload = multer({ storage: storage }).array('image', 5);
+
 const addtour = (req, res) => {
-  uploadOptions(req, res, function (err) {
+  upload(req, res, function (err) {
     if (err instanceof multer.MulterError) {
       // A Multer error occurred during file upload
       return res.status(400).json({
@@ -57,72 +45,53 @@ const addtour = (req, res) => {
     }
 
     const { tour_id, tour_name, description, destination, price, departure_date, duration_days } = req.body;
-    const fileNames = req.files.map(file => file.filename);
+    const imageUrls = req.files.map(file => file.path);
 
-    const promises = fileNames.map(fileName =>
-      cloudinary.uploader.upload(`public/${fileName}`)
-    );
+    tour.findOne({ tour_id: tour_id })
+      .then(existingTour => {
+        if (existingTour) {
+          return res.status(400).json({
+            status: 'FAILED',
+            message: 'Tour ID already exists. Please choose a different ID.'
+          });
+        } else {
+          const newTour = new tour({
+            tour_id,
+            tour_name,
+            description,
+            destination,
+            image: imageUrls,
+            price,
+            departure_date,
+            duration_days
+          });
 
-    Promise.all(promises)
-      .then(results => {
-        const imageUrls = results.map(result => result.secure_url);
-
-        tour.findOne({ tour_id: tour_id })
-          .then(existingTour => {
-            if (existingTour) {
-              return res.status(400).json({
-                status: 'FAILED',
-                message: 'Tour ID already exists. Please choose a different ID.'
+          newTour.save()
+            .then(() => {
+              res.status(200).json({
+                status: 'SUCCESS',
+                message: 'Tour added successfully.'
               });
-            } else {
-              const newTour = new tour({
-                tour_id,
-                tour_name,
-                description,
-                destination,
-                image: imageUrls,
-                price,
-                departure_date,
-                duration_days
-              });
-
-              newTour.save()
-                .then(() =>
-                  res.status(200).json({
-                    status: 'SUCCESS',
-                    message: 'Tour added successfully.'
-                  })
-                )
-                .catch(err =>
-                  res.status(500).json({
-                    status: 'FAILED',
-                    message: 'Tour not added. Error: ' + err.message
-                  })
-                );
-            }
-          })
-          .catch(err =>
-            res.status(500).json({
-              status: 'FAILED',
-              message: 'Error checking tour ID. ' + err.message
             })
-          );
+            .catch(err => {
+              res.status(500).json({
+                status: 'FAILED',
+                message: 'Tour not added. Error: ' + err.message
+              });
+            });
+        }
       })
-      .catch(err =>
+      .catch(err => {
         res.status(500).json({
           status: 'FAILED',
-          message: 'Error uploading images to Cloudinary: ' + err.message
-        })
-      );
+          message: 'Error checking tour ID. ' + err.message
+        });
+      });
   });
 };
 
-
-
-
-
 const updateTour = (req, res) => {
-  uploadOptions(req, res, function (err) {
+  upload(req, res, function (err) {
     // Handle multer upload errors
 
     const { tour_name, description, destination, price, departure_date, duration_days, tour_id } = req.body;
@@ -157,33 +126,19 @@ const updateTour = (req, res) => {
 
           if (req.files && req.files.length > 0) {
             // Upload images to Cloudinary
-            const promises = req.files.map(file =>
-              cloudinary.uploader.upload(file.path)
-            );
+            const imageUrls = req.files.map(file => file.path);
 
-            Promise.all(promises)
-              .then(results => {
-                // Get the image URLs from Cloudinary response
-                const imageUrls = results.map(result => result.secure_url);
-                existingTour.image = imageUrls;
+            existingTour.image = imageUrls;
 
-                existingTour.save()
-                  .then(() => res.status(200).json({
-                    status: "SUCCESS",
-                    message: "Tour updated successfully."
-                  }))
-                  .catch(err => res.status(500).json({
-                    status: "FAILED",
-                    message: "Error updating tour. " + err.message
-                  }));
-              })
-              .catch(err => {
-                // Handle Cloudinary upload errors
-                return res.status(500).json({
-                  status: 'FAILED',
-                  message: 'Error uploading images to Cloudinary: ' + err.message
-                });
-              });
+            existingTour.save()
+              .then(() => res.status(200).json({
+                status: "SUCCESS",
+                message: "Tour updated successfully."
+              }))
+              .catch(err => res.status(500).json({
+                status: "FAILED",
+                message: "Error updating tour. " + err.message
+              }));
           } else {
             // No images uploaded, save the tour without modifying the image property
             existingTour.save()
@@ -205,7 +160,6 @@ const updateTour = (req, res) => {
   });
 };
 
-  
 
 
 const viewtour=async(req,res)=>{

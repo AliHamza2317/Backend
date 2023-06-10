@@ -6,7 +6,7 @@ const { addtour, viewtour, deletetour, updateTour } = require("../Controller/Tou
 
 
 
-tourRouter.post("/add",verifyUserLoggedIn,verifyUserLoggedIn,addtour)
+tourRouter.post("/add",verifyUserLoggedIn,addtour)
 tourRouter.get("/view",verifyUserLoggedIn,viewtour)
 tourRouter.put("/update",verifyUserLoggedIn,checkRole,updateTour)
 tourRouter.delete("/delete/:id",verifyUserLoggedIn,verifyUserLoggedIn,deletetour)

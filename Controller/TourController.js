@@ -22,7 +22,16 @@ const storage = multer.diskStorage({
   }
 });
 
-const uploadOptions = multer({ storage: storage }).array('image');
+const uploadOptions = multer({ storage }).array('image', 5);
+
+const cloudinary = require('cloudinary').v2;
+
+// Configure Cloudinary
+cloudinary.config({ 
+  cloud_name: 'dj1safmih', 
+  api_key: '625184533391514', 
+  api_secret: '11OIiafi90Sfl4OKWGOf48JcSuE' 
+});
 
 const addtour = (req, res) => {
   uploadOptions(req, res, function (err) {
@@ -49,36 +58,152 @@ const addtour = (req, res) => {
 
     const { tour_id, tour_name, description, destination, price, departure_date, duration_days } = req.body;
     const fileNames = req.files.map(file => file.filename);
-    const basePath = `${req.protocol}://${req.get('host')}/public/`;
 
-    tour.findOne({ tour_id: tour_id })
-      .then(existingTour => {
-        if (existingTour) {
-          return res.status(400).json({
-            status: 'FAILED',
-            message: 'Tour ID already exists. Please choose a different ID.'
-          });
-        } else {
-          const imagePaths = fileNames.map(fileName => `${basePath}${fileName}`);
-          const newTour = new tour({ tour_id, tour_name, description, destination, image: imagePaths, price, departure_date, duration_days });
-          newTour.save()
-          .then(() => res.status(200).json({
-            status: 'SUCCESS',
-            message: 'Tour added successfully.'
-          }))
-          .catch(err => res.status(500).json({
-            status: 'FAILED',
-            message: 'Tour not added. Error: ' + err.message
-          }));
-        }
+    const promises = fileNames.map(fileName =>
+      cloudinary.uploader.upload(`public/${fileName}`)
+    );
+
+    Promise.all(promises)
+      .then(results => {
+        const imageUrls = results.map(result => result.secure_url);
+
+        tour.findOne({ tour_id: tour_id })
+          .then(existingTour => {
+            if (existingTour) {
+              return res.status(400).json({
+                status: 'FAILED',
+                message: 'Tour ID already exists. Please choose a different ID.'
+              });
+            } else {
+              const newTour = new tour({
+                tour_id,
+                tour_name,
+                description,
+                destination,
+                image: imageUrls,
+                price,
+                departure_date,
+                duration_days
+              });
+
+              newTour.save()
+                .then(() =>
+                  res.status(200).json({
+                    status: 'SUCCESS',
+                    message: 'Tour added successfully.'
+                  })
+                )
+                .catch(err =>
+                  res.status(500).json({
+                    status: 'FAILED',
+                    message: 'Tour not added. Error: ' + err.message
+                  })
+                );
+            }
+          })
+          .catch(err =>
+            res.status(500).json({
+              status: 'FAILED',
+              message: 'Error checking tour ID. ' + err.message
+            })
+          );
       })
-      .catch(err => res.status(500).json({
-        status: 'FAILED',
-        message: 'Error checking tour ID. ' + err.message
-      }));
+      .catch(err =>
+        res.status(500).json({
+          status: 'FAILED',
+          message: 'Error uploading images to Cloudinary: ' + err.message
+        })
+      );
   });
 };
 
+
+
+
+
+const updateTour = (req, res) => {
+  uploadOptions(req, res, function (err) {
+    // Handle multer upload errors
+
+    const { tour_name, description, destination, price, departure_date, duration_days, tour_id } = req.body;
+
+    tour.findOne({ tour_id: tour_id })
+      .then(existingTour => {
+        if (!existingTour) {
+          return res.status(404).json({
+            status: "FAILED",
+            message: "Tour not found. Cannot update non-existent tour."
+          });
+        } else {
+          // Update only the provided fields
+          if (tour_name) {
+            existingTour.tour_name = tour_name;
+          }
+          if (description) {
+            existingTour.description = description;
+          }
+          if (destination) {
+            existingTour.destination = destination;
+          }
+          if (price) {
+            existingTour.price = price;
+          }
+          if (departure_date) {
+            existingTour.departure_date = departure_date;
+          }
+          if (duration_days) {
+            existingTour.duration_days = duration_days;
+          }
+
+          if (req.files && req.files.length > 0) {
+            // Upload images to Cloudinary
+            const promises = req.files.map(file =>
+              cloudinary.uploader.upload(file.path)
+            );
+
+            Promise.all(promises)
+              .then(results => {
+                // Get the image URLs from Cloudinary response
+                const imageUrls = results.map(result => result.secure_url);
+                existingTour.image = imageUrls;
+
+                existingTour.save()
+                  .then(() => res.status(200).json({
+                    status: "SUCCESS",
+                    message: "Tour updated successfully."
+                  }))
+                  .catch(err => res.status(500).json({
+                    status: "FAILED",
+                    message: "Error updating tour. " + err.message
+                  }));
+              })
+              .catch(err => {
+                // Handle Cloudinary upload errors
+                return res.status(500).json({
+                  status: 'FAILED',
+                  message: 'Error uploading images to Cloudinary: ' + err.message
+                });
+              });
+          } else {
+            // No images uploaded, save the tour without modifying the image property
+            existingTour.save()
+              .then(() => res.status(200).json({
+                status: "SUCCESS",
+                message: "Tour updated successfully."
+              }))
+              .catch(err => res.status(500).json({
+                status: "FAILED",
+                message: "Error updating tour. " + err.message
+              }));
+          }
+        }
+      })
+      .catch(err => res.status(500).json({
+        status: "FAILED",
+        message: "Error checking tour ID. " + err.message
+      }));
+  });
+};
 
   
 
@@ -125,82 +250,9 @@ const viewtour=async(req,res)=>{
   
 
 
-  const updateTour = (req, res) => {
-    uploadOptions(req, res, function (err) {
-      if (err instanceof multer.MulterError) {
-        // A Multer error occurred during file upload
-        return res.status(400).json({
-          status: 'FAILED',
-          message: 'File upload error: ' + err.message
-        });
-      } else if (err) {
-        // An unknown error occurred during file upload
-        return res.status(500).json({
-          status: 'FAILED',
-          message: 'Unknown error during file upload: ' + err.message
-        });
-      }
-  
-      const { tour_name, description, destination, price, departure_date, duration_days, tour_id } = req.body;
-  
-      tour.findOne({ tour_id: tour_id })
-        .then(existingTour => {
-          if (!existingTour) {
-            return res.status(404).json({
-              status: "FAILED",
-              message: "Tour not found. Cannot update non-existent tour."
-            });
-          } else {
-            // Update only the provided fields
-            if (tour_name) {
-              existingTour.tour_name = tour_name;
-            }
-            if (description) {
-              existingTour.description = description;
-            }
-            if (destination) {
-              existingTour.destination = destination;
-            }
-            if (price) {
-              existingTour.price = price;
-            }
-            if (departure_date) {
-              existingTour.departure_date = departure_date;
-            }
-            if (duration_days) {
-              existingTour.duration_days = duration_days;
-            }
-  
-            if (req.files && req.files.length > 0) {
-              // If new images are uploaded, update the image property
-              const fileNames = req.files.map(file => file.filename);
-              const basePath = `${req.protocol}://${req.get('host')}/public/`;
-              const imagePaths = fileNames.map(fileName => `${basePath}${fileName}`);
-              existingTour.image = imagePaths;
-            }
-  
-            existingTour.save()
-              .then(() => res.status(200).json({
-                status: "SUCCESS",
-                message: "Tour updated successfully."
-              }))
-              .catch(err => res.status(500).json({
-                status: "FAILED",
-                message: "Error updating tour. " + err.message
-              }));
-          }
-        })
-        .catch(err => res.status(500).json({
-          status: "FAILED",
-          message: "Error checking tour ID. " + err.message
-        }));
-    });
-  };
-  
-  
-  
  
-
+  
+  
 
 
 module.exports={
